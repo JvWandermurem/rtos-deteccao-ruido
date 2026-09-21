@@ -5,6 +5,8 @@
 #include <LiquidCrystal_I2C.h>
 
 #include "audio_features.h"
+#include "classifier.h"
+#include "classifier_weights.h"
 #include <arduinoFFT.h>
 
 #define I2S_WS 25
@@ -30,6 +32,8 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define MFCC_FILTROS 8
 #define MFCC_COEFICIENTES 6
 #define PISO_FREQUENCIA_HZ 200.0f
+#define THRESHOLD_ASSOBIO 0.5f
+#define PULSO_ALERTA_MS 2500
 
 static float fft_real[BLOCO_AMOSTRAS];
 static float fft_imag[BLOCO_AMOSTRAS];
@@ -154,23 +158,57 @@ static void taskFeatures(void* parametro) {
   }
 }
 
-// Prioridade baixa: consome a fila e decide.
+// Prioridade baixa: classifica o vetor e mantém o alerta por um pulso fixo.
 static void taskDeteccao(void* parametro) {
   VetorFeatures vetor;
+  bool alerta_ativo = false;
+  uint32_t alerta_inicio = 0;
+
   for (;;) {
-    if (xQueueReceive(fila_features, &vetor, pdMS_TO_TICKS(100)) != pdTRUE) {
-      continue;
+    if (xQueueReceive(fila_features, &vetor, pdMS_TO_TICKS(100)) == pdTRUE) {
+      float padronizado[CLASSIFIER_N_FEATURES];
+      standardize(vetor.valores, CLASSIFIER_MEDIA, CLASSIFIER_ESCALA,
+                  padronizado, CLASSIFIER_N_FEATURES);
+      const float score = classifier_score(padronizado, CLASSIFIER_PESOS,
+                                           CLASSIFIER_BIAS,
+                                           CLASSIFIER_N_FEATURES);
+      const bool assobio = classifier_is_anomaly(score, THRESHOLD_ASSOBIO);
+      const int64_t ts_deteccao = esp_timer_get_time();
+
+      if (assobio && !alerta_ativo) {
+        alerta_ativo = true;
+        alerta_inicio = millis();
+        digitalWrite(LED_VERDE, LOW);
+        digitalWrite(LED_VERMELHO, HIGH);
+        lcd.setCursor(0, 0);
+        lcd.print("Clube do Assobio");
+        lcd.setCursor(0, 1);
+        lcd.print("ATIVO!          ");
+      } else if (assobio) {
+        alerta_inicio = millis();  // renova o pulso enquanto durar o assobio
+      }
+
+      Serial.printf("FEAT %.2f %.2f %.4f %.4f %.4f %.4f %.4f %.4f\n",
+                    vetor.valores[0], vetor.valores[1], vetor.valores[2],
+                    vetor.valores[3], vetor.valores[4], vetor.valores[5],
+                    vetor.valores[6], vetor.valores[7]);
+      Serial.printf("LATENCY cap=%lld feat=%lld det=%lld total=%lld label=%s\n",
+                    (long long)vetor.ts_captura,
+                    (long long)(vetor.ts_features - vetor.ts_captura),
+                    (long long)(ts_deteccao - vetor.ts_features),
+                    (long long)(ts_deteccao - vetor.ts_captura),
+                    assobio ? "ASSOBIO" : "NADA");
     }
-    const int64_t ts_deteccao = esp_timer_get_time();
-    Serial.printf("FEAT %.2f %.2f %.4f %.4f %.4f %.4f %.4f %.4f\n",
-                  vetor.valores[0], vetor.valores[1], vetor.valores[2],
-                  vetor.valores[3], vetor.valores[4], vetor.valores[5],
-                  vetor.valores[6], vetor.valores[7]);
-    Serial.printf("LATENCY cap=%lld feat=%lld det=%lld total=%lld label=%s\n",
-                  (long long)vetor.ts_captura,
-                  (long long)(vetor.ts_features - vetor.ts_captura),
-                  (long long)(ts_deteccao - vetor.ts_features),
-                  (long long)(ts_deteccao - vetor.ts_captura), "NADA");
+
+    if (alerta_ativo && (millis() - alerta_inicio) > PULSO_ALERTA_MS) {
+      alerta_ativo = false;
+      digitalWrite(LED_VERMELHO, LOW);
+      digitalWrite(LED_VERDE, HIGH);
+      lcd.setCursor(0, 0);
+      lcd.print("Detector Ruido  ");
+      lcd.setCursor(0, 1);
+      lcd.print("Ativo           ");
+    }
   }
 }
 
