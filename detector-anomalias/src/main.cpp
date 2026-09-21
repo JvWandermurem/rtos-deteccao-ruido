@@ -5,6 +5,7 @@
 #include <LiquidCrystal_I2C.h>
 
 #include "audio_features.h"
+#include <arduinoFFT.h>
 
 #define I2S_WS 25
 #define I2S_SD 33
@@ -23,6 +24,16 @@
 #define FILA_CAPACIDADE 8
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+#define BINS_ESPECTRO (BLOCO_AMOSTRAS / 2 + 1)
+#define BIN_HZ ((float)TAXA_AMOSTRAGEM / (float)BLOCO_AMOSTRAS)
+#define MFCC_FILTROS 8
+#define MFCC_COEFICIENTES 6
+
+static float fft_real[BLOCO_AMOSTRAS];
+static float fft_imag[BLOCO_AMOSTRAS];
+static ArduinoFFT<float> fft(fft_real, fft_imag, BLOCO_AMOSTRAS,
+                             (float)TAXA_AMOSTRAGEM);
 
 struct VetorFeatures {
   float valores[8];
@@ -117,8 +128,19 @@ static void taskFeatures(void* parametro) {
     vetor.ts_captura = ts_ultimo_bloco;
     xSemaphoreGive(mutex_buffer);
 
-    for (size_t i = 0; i < 8; i++) vetor.valores[i] = 0.0f;
+    for (size_t i = 0; i < BLOCO_AMOSTRAS; i++) {
+      fft_real[i] = trabalho[i];
+      fft_imag[i] = 0.0f;
+    }
+    fft.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+    fft.compute(FFTDirection::Forward);
+    fft.complexToMagnitude();
+
     vetor.valores[0] = compute_rms(trabalho, BLOCO_AMOSTRAS);
+    vetor.valores[1] =
+        compute_spectral_centroid(fft_real, BINS_ESPECTRO, BIN_HZ);
+    compute_mfcc(fft_real, BINS_ESPECTRO, BIN_HZ, &vetor.valores[2],
+                 MFCC_COEFICIENTES, MFCC_FILTROS);
     vetor.ts_features = esp_timer_get_time();
 
     if (xQueueSend(fila_features, &vetor, 0) != pdTRUE) {
@@ -135,6 +157,10 @@ static void taskDeteccao(void* parametro) {
       continue;
     }
     const int64_t ts_deteccao = esp_timer_get_time();
+    Serial.printf("FEAT %.2f %.2f %.4f %.4f %.4f %.4f %.4f %.4f\n",
+                  vetor.valores[0], vetor.valores[1], vetor.valores[2],
+                  vetor.valores[3], vetor.valores[4], vetor.valores[5],
+                  vetor.valores[6], vetor.valores[7]);
     Serial.printf("LATENCY cap=%lld feat=%lld det=%lld total=%lld label=%s\n",
                   (long long)vetor.ts_captura,
                   (long long)(vetor.ts_features - vetor.ts_captura),
