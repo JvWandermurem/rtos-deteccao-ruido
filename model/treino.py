@@ -34,11 +34,46 @@ def main():
         "--header",
         default="../detector-anomalias/lib/classifier/classifier_weights.h",
     )
+    parser.add_argument(
+        "--rms-min-assobio",
+        type=float,
+        default=100000.0,
+        help=(
+            "RMS mínimo (coluna 0) para uma linha rotulada 1 continuar sendo"
+            " tratada como assobio; abaixo disso ela é rerrotulada como 0"
+            " (veja o comentário acima da aplicação deste corte)."
+        ),
+    )
     args = parser.parse_args()
 
     tabela = np.genfromtxt(args.dados, delimiter=",", skip_header=1)
     X = tabela[:, :8].astype(np.float32)
     y = tabela[:, 8].astype(int)
+
+    # A coleta (Task 8) rotulou sessões inteiras: durante os 30s em que o
+    # usuário assobiava em rajadas (~2s assobiando, ~1s em silêncio), toda
+    # linha da sessão recebeu label 1 -- inclusive as pausas silenciosas
+    # entre rajadas, que são acusticamente idênticas ao ambiente. Isso não é
+    # ruído aleatório: é um viés sistemático que empurra a fronteira de
+    # decisão para dentro da região "silêncio", fazendo o modelo disparar em
+    # ambientes quietos.
+    #
+    # Por isso, linhas rotuladas 1 cujo RMS não ultrapassa `--rms-min-assobio`
+    # são rerrotuladas como 0 antes do treino: elas não são assobio, mas são
+    # negativos legítimos e valiosos, pois capturam exatamente a condição
+    # "usuário perto do microfone, não assobiando" que hoje gera falsos
+    # positivos. Nenhuma linha é descartada -- apenas o rótulo é corrigido.
+    # O corte de 100000 vem dos dados: é o vale do histograma bimodal de RMS
+    # da sessão de assobio (densidade cai por volta de 93000 e volta a subir
+    # por volta de 160000) e fica acima do percentil 99 da sessão ambiente
+    # (84514).
+    rotulos_corrigidos = (y == 1) & (X[:, 0] <= args.rms_min_assobio)
+    print(
+        f"Rerrotulando {rotulos_corrigidos.sum()} linha(s) de assobio com "
+        f"RMS <= {args.rms_min_assobio:.0f} para label 0 (pausas silenciosas "
+        "entre rajadas de assobio)."
+    )
+    y[rotulos_corrigidos] = 0
 
     X_treino, X_teste, y_treino, y_teste = train_test_split(
         X, y, test_size=0.25, random_state=42, stratify=y
