@@ -8,6 +8,9 @@ float compute_rms(const float* samples, size_t n);
 
 // Centro de massa do espectro, em Hz. bin_hz = sample_rate / fft_size.
 // Retorna 0 se a soma das magnitudes for zero.
+// Pré-condição: quem chama deve ter removido o DC (remove_dc) e zerado o
+// rumble de baixa frequência (zero_low_bins) antes. Sem isso, energia perto
+// de 0 Hz domina a soma ponderada e arrasta o centroide para perto de 0 Hz.
 float compute_spectral_centroid(const float* magnitudes, size_t n_bins,
                                 float bin_hz);
 
@@ -19,6 +22,10 @@ float mel_to_hz(float mel);
 
 // Energia de cada filtro triangular mel, distribuídos entre 0 Hz e
 // bin_hz * (n_bins - 1). out_energies precisa ter n_filters posições.
+// Pré-condição: quem chama deve ter removido o DC (remove_dc) e zerado o
+// rumble de baixa frequência (zero_low_bins) antes. Sem isso, o filtro mel
+// mais grave satura com essa energia espúria e sobra pouco sinal para os
+// filtros que discriminariam o assobio.
 void compute_mel_energies(const float* magnitudes, size_t n_bins, float bin_hz,
                           float* out_energies, size_t n_filters);
 
