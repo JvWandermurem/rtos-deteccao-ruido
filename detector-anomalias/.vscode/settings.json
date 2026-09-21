@@ -1,0 +1,6 @@
+{
+  "clangd.arguments": [
+    "--query-driver=/home/wander/.platformio/packages/toolchain-xtensa-esp32/bin/*",
+    "--compile-commands-dir=${workspaceFolder}"
+  ]
+}

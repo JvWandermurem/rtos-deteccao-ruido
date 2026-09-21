@@ -1,0 +1,11 @@
+.claude/
+.superpowers/
+docs/superpowers/
+CLAUDE.md
+
+.pio/
+compile_commands.json
+.vscode/c_cpp_properties.json
+model/.venv/
+model/dados.csv
+__pycache__/
