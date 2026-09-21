@@ -37,7 +37,7 @@ def main():
     parser.add_argument(
         "--rms-min-assobio",
         type=float,
-        default=400000.0,
+        default=600000.0,
         help=(
             "RMS mínimo (coluna 0) para uma linha rotulada 1 continuar sendo"
             " tratada como assobio; abaixo disso ela é rerrotulada como 0"
@@ -69,9 +69,14 @@ def main():
     # conversa -> sala com ruído real de fundo) e pode mudar de novo. Cada
     # vez que o ambiente de coleta muda, o corte precisa ser reavaliado
     # contra a nova distribuição de RMS dos negativos, não mantido por
-    # inércia. No dataset atual (com ambiente ruidoso real incluído), 400000
-    # deixa os positivos remanescentes mais altos que 93.6% de todo o áudio
-    # negativo, preservando exemplos suficientes (370) para a regressão.
+    # inércia. Com o dataset ampliado (mais sala ruidosa real, que passou a
+    # ser a maior fonte única de negativos), 400000 ainda deixava 5.3% dos
+    # negativos acima do corte -- ruído de sala contaminando a classe
+    # positiva, exatamente a falha de falso positivo relatada em uso real.
+    # 600000 reduz essa contaminação para 1.5%, à custa de manter menos
+    # assobios como positivos (380). Como a queixa em produção é de falso
+    # positivo, e não de assobio perdido, errar para o lado da pureza da
+    # classe positiva é a escolha certa aqui.
     rotulos_corrigidos = (y == 1) & (X[:, 0] <= args.rms_min_assobio)
     print(
         f"Rerrotulando {rotulos_corrigidos.sum()} linha(s) de assobio com "
@@ -85,10 +90,11 @@ def main():
     )
 
     escalador = StandardScaler().fit(X_treino)
-    # class_weight="balanced": o desbalanceamento atual (~14:1) é um
-    # artefato do nosso próprio procedimento de rerrotulagem -- movemos as
-    # pausas para a classe negativa -- e não uma propriedade do problema.
-    # Compensar aqui corrige o método, não maquia a métrica.
+    # class_weight="balanced": o desbalanceamento atual (~27:1, maior que o
+    # ~14:1 da rodada anterior porque o corte subiu) é um artefato do nosso
+    # próprio procedimento de rerrotulagem -- movemos as pausas para a
+    # classe negativa -- e não uma propriedade do problema. Compensar aqui
+    # corrige o método, não maquia a métrica.
     modelo = LogisticRegression(max_iter=1000, class_weight="balanced").fit(
         escalador.transform(X_treino), y_treino
     )
