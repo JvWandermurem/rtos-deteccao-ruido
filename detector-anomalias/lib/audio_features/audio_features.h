@@ -30,4 +30,13 @@ void dct2(const float* input, size_t n_in, float* out, size_t n_out);
 void compute_mfcc(const float* magnitudes, size_t n_bins, float bin_hz,
                   float* out_coeffs, size_t n_coeffs, size_t n_filters);
 
+// Subtrai a média do bloco in place. O INMP441 tem offset DC e o sopro de ar
+// ao assoviar de perto adiciona energia de baixíssima frequência; sem isso o
+// espectro fica dominado por conteúdo perto de 0 Hz.
+void remove_dc(float* samples, size_t n);
+
+// Zera as magnitudes dos bins abaixo de freq_min (bin k está em bin_hz * k).
+void zero_low_bins(float* magnitudes, size_t n_bins, float bin_hz,
+                   float freq_min);
+
 #endif

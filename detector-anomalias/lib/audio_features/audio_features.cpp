@@ -82,3 +82,18 @@ void compute_mfcc(const float* magnitudes, size_t n_bins, float bin_hz,
   }
   dct2(energias, n_filters, out_coeffs, n_coeffs);
 }
+
+void remove_dc(float* samples, size_t n) {
+  if (n == 0) return;
+  float soma = 0.0f;
+  for (size_t i = 0; i < n; i++) soma += samples[i];
+  const float media = soma / (float)n;
+  for (size_t i = 0; i < n; i++) samples[i] -= media;
+}
+
+void zero_low_bins(float* magnitudes, size_t n_bins, float bin_hz,
+                   float freq_min) {
+  for (size_t k = 0; k < n_bins; k++) {
+    if (bin_hz * (float)k < freq_min) magnitudes[k] = 0.0f;
+  }
+}

@@ -29,6 +29,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define BIN_HZ ((float)TAXA_AMOSTRAGEM / (float)BLOCO_AMOSTRAS)
 #define MFCC_FILTROS 8
 #define MFCC_COEFICIENTES 6
+#define PISO_FREQUENCIA_HZ 200.0f
 
 static float fft_real[BLOCO_AMOSTRAS];
 static float fft_imag[BLOCO_AMOSTRAS];
@@ -128,6 +129,8 @@ static void taskFeatures(void* parametro) {
     vetor.ts_captura = ts_ultimo_bloco;
     xSemaphoreGive(mutex_buffer);
 
+    remove_dc(trabalho, BLOCO_AMOSTRAS);
+
     for (size_t i = 0; i < BLOCO_AMOSTRAS; i++) {
       fft_real[i] = trabalho[i];
       fft_imag[i] = 0.0f;
@@ -135,6 +138,8 @@ static void taskFeatures(void* parametro) {
     fft.windowing(FFTWindow::Hamming, FFTDirection::Forward);
     fft.compute(FFTDirection::Forward);
     fft.complexToMagnitude();
+
+    zero_low_bins(fft_real, BINS_ESPECTRO, BIN_HZ, PISO_FREQUENCIA_HZ);
 
     vetor.valores[0] = compute_rms(trabalho, BLOCO_AMOSTRAS);
     vetor.valores[1] =
