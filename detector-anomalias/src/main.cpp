@@ -39,25 +39,29 @@ static SemaphoreHandle_t sem_bloco_pronto;
 static QueueHandle_t fila_features;
 static volatile uint32_t blocos_perdidos = 0;
 static volatile uint32_t sinais_perdidos = 0;
+static volatile uint32_t amostras_capturadas = 0;
 
 static void configurarI2S() {
   i2s_config_t config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-      // O ESP32 clocka os dois slots L/R por ciclo de WS mesmo em
-      // I2S_CHANNEL_FMT_ONLY_LEFT, então o canal esquerdo só entrega dados
-      // novos na metade do sample_rate configurado. Medido: com
-      // sample_rate = TAXA_AMOSTRAGEM a taxa real caía para ~15,7 blocos/s
-      // (deveria ser ~31,3); dobrando para 2 * TAXA_AMOSTRAGEM a taxa real
-      // sobe para ~31,3 blocos/s, confirmando a hipótese. TAXA_AMOSTRAGEM
-      // continua sendo a taxa de áudio verdadeira (usada pela Task 7 para
-      // BIN_HZ) — não "simplifique" isto de volta para TAXA_AMOSTRAGEM.
-      .sample_rate = 2 * TAXA_AMOSTRAGEM,
+      // Medido com um contador de amostras (amostras_capturadas): com
+      // sample_rate = TAXA_AMOSTRAGEM o I2S entrega ~16.000 amostras/s,
+      // exatamente a taxa configurada — não há halving de canal ONLY_LEFT
+      // aqui. A taxa real de LATENCY/s mais baixa que se observa (~15,7/s
+      // em vez de ~31,3/s) vem do lado do consumidor: taskCaptura roda em
+      // prioridade mais alta que taskFeatures no mesmo core, o DMA guarda
+      // várias amostras em buffer, e i2s_read() drena esse backlog sem
+      // bloquear várias vezes seguidas antes de taskFeatures conseguir
+      // rodar — cada give() extra do semáforo binário nesse meio tempo é
+      // descartado (ver sinais_perdidos). Não é um problema de hardware;
+      // não dobre este valor.
+      .sample_rate = TAXA_AMOSTRAGEM,
       .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
       .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
       .communication_format = I2S_COMM_FORMAT_STAND_I2S,
       .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
       .dma_buf_count = 4,
-      .dma_buf_len = 1024,
+      .dma_buf_len = BLOCO_AMOSTRAS,
   };
   i2s_pin_config_t pinos = {
       .bck_io_num = I2S_SCK,
@@ -77,6 +81,7 @@ static void taskCaptura(void* parametro) {
     i2s_read(I2S_PORT, brutas, sizeof(brutas), &bytes_lidos, portMAX_DELAY);
     const size_t n = bytes_lidos / sizeof(int32_t);
     const int64_t agora = esp_timer_get_time();
+    amostras_capturadas += n;
 
     xSemaphoreTake(mutex_buffer, portMAX_DELAY);
     for (size_t i = 0; i < n; i++) {
@@ -166,7 +171,8 @@ void setup() {
 
 void loop() {
   // Métrica de saturação do pipeline: em operação normal fica em zero.
-  Serial.printf("DROPS %u SINAIS_PERDIDOS %u\n", (unsigned)blocos_perdidos,
-                (unsigned)sinais_perdidos);
+  Serial.printf("DROPS %u SINAIS_PERDIDOS %u AMOSTRAS %u\n",
+                (unsigned)blocos_perdidos, (unsigned)sinais_perdidos,
+                (unsigned)amostras_capturadas);
   vTaskDelay(pdMS_TO_TICKS(5000));
 }
