@@ -37,7 +37,7 @@ def main():
     parser.add_argument(
         "--rms-min-assobio",
         type=float,
-        default=100000.0,
+        default=400000.0,
         help=(
             "RMS mínimo (coluna 0) para uma linha rotulada 1 continuar sendo"
             " tratada como assobio; abaixo disso ela é rerrotulada como 0"
@@ -63,10 +63,15 @@ def main():
     # negativos legítimos e valiosos, pois capturam exatamente a condição
     # "usuário perto do microfone, não assobiando" que hoje gera falsos
     # positivos. Nenhuma linha é descartada -- apenas o rótulo é corrigido.
-    # O corte de 100000 vem dos dados: é o vale do histograma bimodal de RMS
-    # da sessão de assobio (densidade cai por volta de 93000 e volta a subir
-    # por volta de 160000) e fica acima do percentil 99 da sessão ambiente
-    # (84514).
+    #
+    # O corte não é uma constante fixa: ele acompanha o piso de ruído do
+    # ambiente de implantação, que já mudou uma vez (sala quieta -> sala com
+    # conversa -> sala com ruído real de fundo) e pode mudar de novo. Cada
+    # vez que o ambiente de coleta muda, o corte precisa ser reavaliado
+    # contra a nova distribuição de RMS dos negativos, não mantido por
+    # inércia. No dataset atual (com ambiente ruidoso real incluído), 400000
+    # deixa os positivos remanescentes mais altos que 93.6% de todo o áudio
+    # negativo, preservando exemplos suficientes (370) para a regressão.
     rotulos_corrigidos = (y == 1) & (X[:, 0] <= args.rms_min_assobio)
     print(
         f"Rerrotulando {rotulos_corrigidos.sum()} linha(s) de assobio com "
@@ -80,7 +85,11 @@ def main():
     )
 
     escalador = StandardScaler().fit(X_treino)
-    modelo = LogisticRegression(max_iter=1000).fit(
+    # class_weight="balanced": o desbalanceamento atual (~14:1) é um
+    # artefato do nosso próprio procedimento de rerrotulagem -- movemos as
+    # pausas para a classe negativa -- e não uma propriedade do problema.
+    # Compensar aqui corrige o método, não maquia a métrica.
+    modelo = LogisticRegression(max_iter=1000, class_weight="balanced").fit(
         escalador.transform(X_treino), y_treino
     )
 
