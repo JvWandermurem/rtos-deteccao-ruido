@@ -38,11 +38,20 @@ static SemaphoreHandle_t mutex_buffer;
 static SemaphoreHandle_t sem_bloco_pronto;
 static QueueHandle_t fila_features;
 static volatile uint32_t blocos_perdidos = 0;
+static volatile uint32_t sinais_perdidos = 0;
 
 static void configurarI2S() {
   i2s_config_t config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-      .sample_rate = TAXA_AMOSTRAGEM,
+      // O ESP32 clocka os dois slots L/R por ciclo de WS mesmo em
+      // I2S_CHANNEL_FMT_ONLY_LEFT, então o canal esquerdo só entrega dados
+      // novos na metade do sample_rate configurado. Medido: com
+      // sample_rate = TAXA_AMOSTRAGEM a taxa real caía para ~15,7 blocos/s
+      // (deveria ser ~31,3); dobrando para 2 * TAXA_AMOSTRAGEM a taxa real
+      // sobe para ~31,3 blocos/s, confirmando a hipótese. TAXA_AMOSTRAGEM
+      // continua sendo a taxa de áudio verdadeira (usada pela Task 7 para
+      // BIN_HZ) — não "simplifique" isto de volta para TAXA_AMOSTRAGEM.
+      .sample_rate = 2 * TAXA_AMOSTRAGEM,
       .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
       .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
       .communication_format = I2S_COMM_FORMAT_STAND_I2S,
@@ -81,7 +90,9 @@ static void taskCaptura(void* parametro) {
     // Semáforo binário: se a Task 2 ainda não consumiu o sinal anterior,
     // este give é descartado. É o comportamento desejado — a Task 2 sempre
     // processa o bloco mais recente, e a captura nunca bloqueia.
-    xSemaphoreGive(sem_bloco_pronto);
+    if (xSemaphoreGive(sem_bloco_pronto) != pdTRUE) {
+      sinais_perdidos++;
+    }
   }
 }
 
@@ -155,6 +166,7 @@ void setup() {
 
 void loop() {
   // Métrica de saturação do pipeline: em operação normal fica em zero.
-  Serial.printf("DROPS %u\n", (unsigned)blocos_perdidos);
+  Serial.printf("DROPS %u SINAIS_PERDIDOS %u\n", (unsigned)blocos_perdidos,
+                (unsigned)sinais_perdidos);
   vTaskDelay(pdMS_TO_TICKS(5000));
 }
