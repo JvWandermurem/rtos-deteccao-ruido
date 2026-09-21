@@ -1,29 +1,39 @@
-"""Treina a regressão logística de assobio e exporta ONNX + header C."""
+"""Treina a árvore de decisão de assobio e exporta ONNX + header C."""
 
 import argparse
 
 import numpy as np
 from skl2onnx import to_onnx
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 CABECALHO_C = """// Gerado por model/treino.py -- não editar à mão.
 #ifndef CLASSIFIER_WEIGHTS_H
 #define CLASSIFIER_WEIGHTS_H
 
-static const float CLASSIFIER_PESOS[8] = {{{pesos}}};
-static const float CLASSIFIER_BIAS = {bias}f;
-static const float CLASSIFIER_MEDIA[8] = {{{media}}};
-static const float CLASSIFIER_ESCALA[8] = {{{escala}}};
+// Árvore de decisão de profundidade {profundidade}, {folhas} folhas.
+// Retorna a probabilidade de assobio na folha alcançada.
+static inline float classifier_tree_score(const float* f) {{
+{corpo}}}
 
 #endif
 """
 
 
-def formatar(vetor):
-    return ", ".join(f"{v:.8f}f" for v in vetor)
+def emitir_arvore(arvore, no=0, nivel=1):
+    """Converte a árvore treinada em if/else aninhados em C."""
+    ind = "  " * nivel
+    if arvore.children_left[no] == -1:
+        contagem = arvore.value[no][0]
+        prob = contagem[1] / (contagem[0] + contagem[1])
+        return f"{ind}return {prob:.6f}f;\n"
+    corpo = f"{ind}if (f[{arvore.feature[no]}] <= {arvore.threshold[no]:.6f}f) {{\n"
+    corpo += emitir_arvore(arvore, arvore.children_left[no], nivel + 1)
+    corpo += f"{ind}}} else {{\n"
+    corpo += emitir_arvore(arvore, arvore.children_right[no], nivel + 1)
+    corpo += f"{ind}}}\n"
+    return corpo
 
 
 def main():
@@ -89,31 +99,26 @@ def main():
         X, y, test_size=0.25, random_state=42, stratify=y
     )
 
-    escalador = StandardScaler().fit(X_treino)
-    # class_weight="balanced": o desbalanceamento atual (~27:1, maior que o
-    # ~14:1 da rodada anterior porque o corte subiu) é um artefato do nosso
-    # próprio procedimento de rerrotulagem -- movemos as pausas para a
-    # classe negativa -- e não uma propriedade do problema. Compensar aqui
-    # corrige o método, não maquia a métrica.
-    modelo = LogisticRegression(max_iter=1000, class_weight="balanced").fit(
-        escalador.transform(X_treino), y_treino
-    )
+    # Árvore rasa: separa assobio de grito sustentado, o que uma fronteira
+    # linear não consegue. Invariante a escala, então sem StandardScaler.
+    modelo = DecisionTreeClassifier(
+        max_depth=4, class_weight="balanced", random_state=42
+    ).fit(X_treino, y_treino)
 
-    previsto = modelo.predict(escalador.transform(X_teste))
+    previsto = modelo.predict(X_teste)
     print(confusion_matrix(y_teste, previsto))
     print(classification_report(y_teste, previsto, digits=3))
 
-    onnx = to_onnx(modelo, escalador.transform(X_treino)[:1].astype(np.float32))
+    onnx = to_onnx(modelo, X_treino[:1].astype(np.float32))
     with open(args.onnx, "wb") as arquivo:
         arquivo.write(onnx.SerializeToString())
 
     with open(args.header, "w") as arquivo:
         arquivo.write(
             CABECALHO_C.format(
-                pesos=formatar(modelo.coef_[0]),
-                bias=f"{modelo.intercept_[0]:.8f}",
-                media=formatar(escalador.mean_),
-                escala=formatar(escalador.scale_),
+                profundidade=modelo.get_depth(),
+                folhas=modelo.get_n_leaves(),
+                corpo=emitir_arvore(modelo.tree_),
             )
         )
 

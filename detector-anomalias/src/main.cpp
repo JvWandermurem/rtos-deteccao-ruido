@@ -34,7 +34,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define PISO_FREQUENCIA_HZ 200.0f
 #define THRESHOLD_ASSOBIO 0.5f
 #define PULSO_ALERTA_MS 2500
-#define BLOCOS_CONSECUTIVOS_ALERTA 3
+#define BLOCOS_CONSECUTIVOS_ALERTA 20
 
 static float fft_real[BLOCO_AMOSTRAS];
 static float fft_imag[BLOCO_AMOSTRAS];
@@ -168,12 +168,7 @@ static void taskDeteccao(void* parametro) {
 
   for (;;) {
     if (xQueueReceive(fila_features, &vetor, pdMS_TO_TICKS(100)) == pdTRUE) {
-      float padronizado[CLASSIFIER_N_FEATURES];
-      standardize(vetor.valores, CLASSIFIER_MEDIA, CLASSIFIER_ESCALA,
-                  padronizado, CLASSIFIER_N_FEATURES);
-      const float score = classifier_score(padronizado, CLASSIFIER_PESOS,
-                                           CLASSIFIER_BIAS,
-                                           CLASSIFIER_N_FEATURES);
+      const float score = classifier_tree_score(vetor.valores);
       const bool assobio = classifier_is_anomaly(score, THRESHOLD_ASSOBIO);
       const int64_t ts_deteccao = esp_timer_get_time();
 

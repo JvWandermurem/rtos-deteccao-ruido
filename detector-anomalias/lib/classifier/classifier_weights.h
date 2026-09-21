@@ -2,9 +2,30 @@
 #ifndef CLASSIFIER_WEIGHTS_H
 #define CLASSIFIER_WEIGHTS_H
 
-static const float CLASSIFIER_PESOS[8] = {4.62191614f, -0.73930897f, -0.16078727f, -0.48938354f, -0.12656898f, -0.76908739f, 0.03317351f, -0.30418890f};
-static const float CLASSIFIER_BIAS = -6.81846999f;
-static const float CLASSIFIER_MEDIA[8] = {178523.24240570f, 1515.85980044f, 124.38447262f, 3.69552981f, 0.22487086f, -0.57406335f, -0.57467508f, -0.19982348f};
-static const float CLASSIFIER_ESCALA[8] = {272201.10206583f, 590.16232729f, 9.12165873f, 1.97152462f, 1.66808545f, 1.21874272f, 0.82493551f, 0.78335765f};
+// Árvore de decisão de profundidade 4, 6 folhas.
+// Retorna a probabilidade de assobio na folha alcançada.
+static inline float classifier_tree_score(const float* f) {
+  if (f[0] <= 600495.281250f) {
+    return 0.000000f;
+  } else {
+    if (f[5] <= 2.335250f) {
+      if (f[2] <= 145.594299f) {
+        if (f[1] <= 2348.574951f) {
+          return 0.991255f;
+        } else {
+          return 0.000000f;
+        }
+      } else {
+        if (f[6] <= -0.394150f) {
+          return 0.000000f;
+        } else {
+          return 0.992779f;
+        }
+      }
+    } else {
+      return 0.000000f;
+    }
+  }
+}
 
 #endif
