@@ -9,3 +9,15 @@ float compute_rms(const float* samples, size_t n) {
   }
   return sqrtf(soma / (float)n);
 }
+
+float compute_spectral_centroid(const float* magnitudes, size_t n_bins,
+                                float bin_hz) {
+  float soma_pesos = 0.0f;
+  float soma_ponderada = 0.0f;
+  for (size_t k = 0; k < n_bins; k++) {
+    soma_pesos += magnitudes[k];
+    soma_ponderada += magnitudes[k] * (bin_hz * (float)k);
+  }
+  if (soma_pesos <= 0.0f) return 0.0f;
+  return soma_ponderada / soma_pesos;
+}
