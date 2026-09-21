@@ -22,4 +22,12 @@ float mel_to_hz(float mel);
 void compute_mel_energies(const float* magnitudes, size_t n_bins, float bin_hz,
                           float* out_energies, size_t n_filters);
 
+// DCT-II não normalizada: out[k] = sum_n in[n] * cos(pi*(n+0.5)*k/n_in)
+void dct2(const float* input, size_t n_in, float* out, size_t n_out);
+
+// MFCC: energias mel -> log -> DCT-II. n_filters é limitado a
+// MFCC_MAX_FILTROS. out_coeffs precisa ter n_coeffs posições.
+void compute_mfcc(const float* magnitudes, size_t n_bins, float bin_hz,
+                  float* out_coeffs, size_t n_coeffs, size_t n_filters);
+
 #endif

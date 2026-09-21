@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <math.h>
 #include "audio_features.h"
 
 void setUp(void) {}
@@ -80,6 +81,43 @@ void test_energias_mel_respeitam_ordem_de_frequencia(void) {
   TEST_ASSERT_TRUE(argmax_grave < argmax_agudo);
 }
 
+// DCT-II de um sinal constante concentra tudo no coeficiente 0.
+void test_dct2_de_entrada_constante(void) {
+  const float entrada[4] = {2.0f, 2.0f, 2.0f, 2.0f};
+  float saida[4];
+  dct2(entrada, 4, saida, 4);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 8.0f, saida[0]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, saida[1]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, saida[2]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, saida[3]);
+}
+
+// Mesmo com espectro zerado, o log tem piso: nada de -inf ou NaN.
+void test_mfcc_de_espectro_silencioso_e_finito(void) {
+  float magnitudes[257];
+  for (size_t k = 0; k < 257; k++) magnitudes[k] = 0.0f;
+  float coeficientes[6];
+  compute_mfcc(magnitudes, 257, 31.25f, coeficientes, 6, 8);
+  for (size_t c = 0; c < 6; c++) {
+    TEST_ASSERT_TRUE(isfinite(coeficientes[c]));
+  }
+}
+
+// O coeficiente 0 é proporcional à energia total em escala log.
+void test_mfcc_primeiro_coeficiente_cresce_com_energia(void) {
+  float magnitudes[257];
+  float baixo[6];
+  float alto[6];
+
+  for (size_t k = 0; k < 257; k++) magnitudes[k] = 0.01f;
+  compute_mfcc(magnitudes, 257, 31.25f, baixo, 6, 8);
+
+  for (size_t k = 0; k < 257; k++) magnitudes[k] = 10.0f;
+  compute_mfcc(magnitudes, 257, 31.25f, alto, 6, 8);
+
+  TEST_ASSERT_TRUE(alto[0] > baixo[0]);
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_rms_de_sinal_constante);
@@ -92,5 +130,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_mel_ida_e_volta);
   RUN_TEST(test_energias_mel_de_espectro_silencioso_sao_zero);
   RUN_TEST(test_energias_mel_respeitam_ordem_de_frequencia);
+  RUN_TEST(test_dct2_de_entrada_constante);
+  RUN_TEST(test_mfcc_de_espectro_silencioso_e_finito);
+  RUN_TEST(test_mfcc_primeiro_coeficiente_cresce_com_energia);
   return UNITY_END();
 }

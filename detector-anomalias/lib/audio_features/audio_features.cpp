@@ -56,3 +56,29 @@ void compute_mel_energies(const float* magnitudes, size_t n_bins, float bin_hz,
     out_energies[f] = soma;
   }
 }
+
+void dct2(const float* input, size_t n_in, float* out, size_t n_out) {
+  if (n_in == 0) {
+    for (size_t k = 0; k < n_out; k++) out[k] = 0.0f;
+    return;
+  }
+  for (size_t k = 0; k < n_out; k++) {
+    float soma = 0.0f;
+    for (size_t n = 0; n < n_in; n++) {
+      soma += input[n] * cosf((float)M_PI * ((float)n + 0.5f) * (float)k /
+                              (float)n_in);
+    }
+    out[k] = soma;
+  }
+}
+
+void compute_mfcc(const float* magnitudes, size_t n_bins, float bin_hz,
+                  float* out_coeffs, size_t n_coeffs, size_t n_filters) {
+  if (n_filters > MFCC_MAX_FILTROS) n_filters = MFCC_MAX_FILTROS;
+  float energias[MFCC_MAX_FILTROS];
+  compute_mel_energies(magnitudes, n_bins, bin_hz, energias, n_filters);
+  for (size_t f = 0; f < n_filters; f++) {
+    energias[f] = logf(energias[f] + 1e-10f);
+  }
+  dct2(energias, n_filters, out_coeffs, n_coeffs);
+}
