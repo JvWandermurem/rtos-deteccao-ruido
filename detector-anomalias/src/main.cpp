@@ -34,6 +34,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define PISO_FREQUENCIA_HZ 200.0f
 #define THRESHOLD_ASSOBIO 0.5f
 #define PULSO_ALERTA_MS 2500
+#define BLOCOS_CONSECUTIVOS_ALERTA 3
 
 static float fft_real[BLOCO_AMOSTRAS];
 static float fft_imag[BLOCO_AMOSTRAS];
@@ -163,6 +164,7 @@ static void taskDeteccao(void* parametro) {
   VetorFeatures vetor;
   bool alerta_ativo = false;
   uint32_t alerta_inicio = 0;
+  int consecutivos = 0;
 
   for (;;) {
     if (xQueueReceive(fila_features, &vetor, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -175,7 +177,10 @@ static void taskDeteccao(void* parametro) {
       const bool assobio = classifier_is_anomaly(score, THRESHOLD_ASSOBIO);
       const int64_t ts_deteccao = esp_timer_get_time();
 
-      if (assobio && !alerta_ativo) {
+      consecutivos = assobio ? consecutivos + 1 : 0;
+      const bool dispara = consecutivos >= BLOCOS_CONSECUTIVOS_ALERTA;
+
+      if (dispara && !alerta_ativo) {
         alerta_ativo = true;
         alerta_inicio = millis();
         digitalWrite(LED_VERDE, LOW);
@@ -184,20 +189,21 @@ static void taskDeteccao(void* parametro) {
         lcd.print("Clube do Assobio");
         lcd.setCursor(0, 1);
         lcd.print("ATIVO!          ");
-      } else if (assobio) {
-        alerta_inicio = millis();  // renova o pulso enquanto durar o assobio
+      } else if (dispara) {
+        alerta_inicio = millis();
       }
 
       Serial.printf("FEAT %.2f %.2f %.4f %.4f %.4f %.4f %.4f %.4f\n",
                     vetor.valores[0], vetor.valores[1], vetor.valores[2],
                     vetor.valores[3], vetor.valores[4], vetor.valores[5],
                     vetor.valores[6], vetor.valores[7]);
-      Serial.printf("LATENCY cap=%lld feat=%lld det=%lld total=%lld label=%s\n",
-                    (long long)vetor.ts_captura,
-                    (long long)(vetor.ts_features - vetor.ts_captura),
-                    (long long)(ts_deteccao - vetor.ts_features),
-                    (long long)(ts_deteccao - vetor.ts_captura),
-                    assobio ? "ASSOBIO" : "NADA");
+      Serial.printf(
+          "LATENCY cap=%lld feat=%lld det=%lld total=%lld label=%s alerta=%s\n",
+          (long long)vetor.ts_captura,
+          (long long)(vetor.ts_features - vetor.ts_captura),
+          (long long)(ts_deteccao - vetor.ts_features),
+          (long long)(ts_deteccao - vetor.ts_captura),
+          assobio ? "ASSOBIO" : "NADA", dispara ? "SIM" : "NAO");
     }
 
     if (alerta_ativo && (millis() - alerta_inicio) > PULSO_ALERTA_MS) {
